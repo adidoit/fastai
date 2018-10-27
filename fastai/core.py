@@ -8,6 +8,7 @@ AnnealFunc = Callable[[Number,Number,float], Number]
 ArgStar = Collection[Any]
 BatchSamples = Collection[Tuple[Collection[int], int]]
 Classes = Collection[Any]
+DataFrameOrChunks = Union[DataFrame, pd.io.parsers.TextFileReader]
 FilePathList = Collection[Path]
 Floats = Union[float, Collection[float]]
 ImgLabel = str
@@ -37,16 +38,21 @@ StrList = Collection[str]
 Tokens = Collection[Collection[str]]
 OptStrList = Optional[StrList]
 
+np.set_printoptions(precision=6, threshold=50, edgeitems=4, linewidth=120)
+
 def num_cpus()->int:
     "Get number of cpus"
     try:                   return len(os.sched_getaffinity(0))
     except AttributeError: return os.cpu_count()
 
-default_cpus = min(16, num_cpus())
-
 def is_listy(x:Any)->bool: return isinstance(x, (tuple,list))
 def is_tuple(x:Any)->bool: return isinstance(x, tuple)
 def noop(x): return x
+
+def to_int(b:Any)->Union[int,List[int]]:
+    "Convert `b` to an int or list of ints (if `is_listy`); raises exception if not convertible"
+    if is_listy(b): return [to_int(x) for x in b]
+    else:          return int(b)
 
 def ifnone(a:Any,b:Any)->Any:
     "`a` if `a` is not None, otherwise `b`."
@@ -64,11 +70,13 @@ def find_classes(folder:Path)->FilePathList:
 
 def arrays_split(mask:NPArrayMask, *arrs:NPArrayableList)->SplitArrayList:
     "Given `arrs` is [a,b,...] and `mask`index - return[(a[mask],a[~mask]),(b[mask],b[~mask]),...]."
+    assert all([len(arr)==len(arrs[0]) for arr in arrs]), 'All arrays should have same length'
     mask = array(mask)
     return list(zip(*[(a[mask],a[~mask]) for a in map(np.array, arrs)]))
 
 def random_split(valid_pct:float, *arrs:NPArrayableList)->SplitArrayList:
     "Randomly split `arrs` with `valid_pct` ratio. good for creating validation set."
+    assert (valid_pct>=0 and valid_pct<=1), 'Validation set percentage should be between 0 and 1'
     is_train = np.random.uniform(size=(len(arrs[0]),)) > valid_pct
     return arrays_split(is_train, *arrs)
 
@@ -110,9 +118,12 @@ def partition_by_cores(a:Collection, n_cpus:int) -> List[Collection]:
     "Split data in `a` equally among `n_cpus` cores"
     return partition(a, len(a)//n_cpus + 1)
 
-def get_chunk_length(csv_name:PathOrStr, chunksize:int) -> int:
+def get_chunk_length(data:Union[PathOrStr, DataFrame, pd.io.parsers.TextFileReader], chunksize:Optional[int] = None) -> int:
     "Read the number of chunks in a pandas `DataFrame`."
-    dfs = pd.read_csv(csv_name, header=None, chunksize=chunksize)
+    if (type(data) == DataFrame):  return 1
+    elif (type(data) == pd.io.parsers.TextFileReader):
+        dfs = pd.read_csv(data.f, header=None, chunksize=data.chunksize)
+    else:  dfs = pd.read_csv(data, header=None, chunksize=chunksize)
     l = 0
     for _ in dfs: l+=1
     return l
@@ -144,7 +155,7 @@ class ItemBase():
     @abstractmethod
     def data(self): pass
 
-def download_url(url:str, dest:str, overwrite:bool=False)->None:
+def download_url(url:str, dest:str, overwrite:bool=False, pbar:ProgressBar=None, show_progress=True)->None:
     "Download `url` to `dest` unless is exists and not `overwrite`."
     if os.path.exists(dest) and not overwrite: return
     u = requests.get(url, stream=True)
@@ -152,11 +163,16 @@ def download_url(url:str, dest:str, overwrite:bool=False)->None:
     u = u.raw
 
     with open(dest,'wb') as f:
-        pbar = progress_bar(range(file_size), auto_update=False)
+        if show_progress: pbar = progress_bar(range(file_size), auto_update=False, leave=False, parent=pbar)
         nbytes,buffer = 0,[1]
         while len(buffer):
             buffer = u.read(8192)
             nbytes += len(buffer)
-            pbar.update(nbytes)
+            if show_progress: pbar.update(nbytes)
             f.write(buffer)
+
+def range_of(x): return list(range(len(x)))
+def arange_of(x): return np.arange(len(x))
+
+Path.ls = lambda x: list(x.iterdir())
 

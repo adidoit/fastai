@@ -5,7 +5,6 @@ from .core import *
 AffineMatrix = Tensor
 BoolOrTensor = Union[bool,Tensor]
 FloatOrTensor = Union[float,Tensor]
-FlowField = Tensor
 IntOrTensor = Union[int,Tensor]
 ItemsList = Collection[Union[Tensor,ItemBase,'ItemsList',float,int]]
 LambdaFunc = Callable[[Tensor],Tensor]
@@ -36,7 +35,6 @@ OptMetrics = Optional[MetricsList]
 OptSplitFunc = Optional[SplitFunc]
 PixelFunc = Callable[[TensorImage, ArgStar, KWArgs], TensorImage]
 
-CoordFunc = Callable[[FlowField, TensorImageSize, ArgStar, KWArgs], LogitTensorImage]
 LightingFunc = Callable[[LogitTensorImage, ArgStar, KWArgs], LogitTensorImage]
 
 fastai_types = {
@@ -48,21 +46,34 @@ fastai_types = {
     OptStats:'OptStats', PathOrStr:'PathOrStr', PBar:'PBar', Point:'Point', Points:'Points', Sizes:'Sizes',
     SplitArrayList:'SplitArrayList', StartOptEnd:'StartOptEnd', StrList:'StrList', Tokens:'Tokens',
     OptStrList:'OptStrList', AffineMatrix:'AffineMatrix', BoolOrTensor:'BoolOrTensor', FloatOrTensor:'FloatOrTensor',
-    FlowField:'FlowField', IntOrTensor:'IntOrTensor', ItemsList:'ItemsList', LambdaFunc:'LambdaFunc',
+    IntOrTensor:'IntOrTensor', ItemsList:'ItemsList', LambdaFunc:'LambdaFunc',
     LayerFunc:'LayerFunc', Model:'Model', ModuleList:'ModuleList', OptOptimizer:'OptOptimizer', ParamList:'ParamList',
     Rank0Tensor:'Rank0Tensor', SplitFunc:'SplitFunc', SplitFuncOrIdxList:'SplitFuncOrIdxList',
     TensorOrNumber:'TensorOrNumber', TensorOrNumList:'TensorOrNumList', TensorImage:'TensorImage',
     TensorImageSize:'TensorImageSize', Tensors:'Tensors', Weights:'Weights', AffineFunc:'AffineFunc',
     HookFunc:'HookFunc', LogitTensorImage:'LogitTensorImage', LossFunction:'LossFunction', MetricFunc:'MetricFunc',
     MetricFuncList:'MetricFuncList', MetricsList:'MetricsList', OptLossFunc:'OptLossFunc', OptMetrics:'OptMetrics',
-    OptSplitFunc:'OptSplitFunc', PixelFunc:'PixelFunc', CoordFunc:'CoordFunc', LightingFunc:'LightingFunc',
+    OptSplitFunc:'OptSplitFunc', PixelFunc:'PixelFunc', LightingFunc:'LightingFunc',
 }
 
 bn_types = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)
-default_device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+_default_cpus = min(16, num_cpus())
+_default_device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+defaults = SimpleNamespace(device=_default_device, cpus=_default_cpus)
 AdamW = partial(optim.Adam, betas=(0.9,0.99))
 
-def tensor(x): return x if isinstance(x,Tensor) else torch.tensor(x)
+def tensor(x:Any)->Tensor:
+    "Like `torch.as_tensor`, but handle lists too"
+    return torch.tensor(x) if is_listy(x) else as_tensor(x)
+
+def np_address(x:np.ndarray)->int:
+    "Address of `x` in memory"
+    return x.__array_interface__['data'][0]
+
+def to_detach(b:Tensors):
+    "Recursively detach lists of tensors in `b `"
+    if is_listy(b): return [to_detach(o) for o in b]
+    return b.detach() if isinstance(b,Tensor) else b
 
 def to_data(b:ItemsList):
     "Recursively map lists of items in `b ` to their wrapped data"
@@ -71,7 +82,7 @@ def to_data(b:ItemsList):
 
 def to_device(b:Tensors, device:torch.device):
     "Ensure `b` is on `device`."
-    device = ifnone(device, default_device)
+    device = ifnone(device, defaults.device)
     if is_listy(b): return [to_device(o, device) for o in b]
     return b.to(device)
 
@@ -182,8 +193,21 @@ def in_channels(m:Model) -> List[int]:
 
 def calc_loss(y_pred:Tensor, y_true:Tensor, loss_class:type=nn.CrossEntropyLoss, bs=64):
     "Calculate loss between `y_pred` and `y_true` using `loss_class` and `bs`."
-    loss_dl = DataLoader(TensorDataset(tensor(y_pred),tensor(y_true)), bs)
+    loss_dl = DataLoader(TensorDataset(as_tensor(y_pred),as_tensor(y_true)), bs)
     with torch.no_grad():
         return torch.cat([loss_class(reduction='none')(*b) for b in loss_dl])
 
 def to_np(x): return x.cpu().numpy()
+
+def model_type(dtype):
+    return (torch.float32 if np.issubdtype(dtype, np.floating) else
+            torch.int64 if np.issubdtype(dtype, np.integer)
+            else None)
+
+def np2model_tensor(a):
+    dtype = model_type(a.dtype)
+    res = as_tensor(a)
+    if not dtype: return res
+    return res.type(dtype)
+
+def trange_of(x): return torch.arange(len(x))

@@ -2,7 +2,7 @@
 from ..torch_core import *
 from ..callback import *
 from ..basic_train import *
-from ..data import *
+from ..basic_data import *
 
 __all__ = ['ActivationStats', 'Hook', 'HookCallback', 'Hooks', 'hook_output', 'hook_outputs', 
            'model_sizes']
@@ -57,7 +57,7 @@ class HookCallback(LearnerCallback):
     def on_train_end(self, **kwargs):
         if self.do_remove: self.remove()
 
-    def remove(self): self.hooks.remove
+    def remove(self): self.hooks.remove()
     def __del__(self): self.remove()
 
 class ActivationStats(HookCallback):
@@ -68,7 +68,8 @@ class ActivationStats(HookCallback):
 
     def hook(self, m:Model, i:Tensors, o:Tensors) -> Tuple[Rank0Tensor,Rank0Tensor]:
         return o.mean().item(),o.std().item()
-    def on_batch_end(self, **kwargs): self.stats.append(self.hooks.stored)
+    def on_batch_end(self, train, **kwargs): 
+        if train: self.stats.append(self.hooks.stored)
     def on_train_end(self, **kwargs): self.stats = tensor(self.stats).permute(2,1,0)
 
 def model_sizes(m:Model, size:tuple=(256,256), full:bool=True) -> Tuple[Sizes,Tensor,Hooks]:

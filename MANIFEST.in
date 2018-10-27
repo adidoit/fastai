@@ -3,6 +3,7 @@ include CONTRIBUTING.md
 include HISTORY.md
 include LICENSE
 include README.md
+include fastai/gen_doc/*tpl
 
 recursive-include tests *
 recursive-exclude * __pycache__
@@ -10,3 +11,4 @@ recursive-exclude * *.py[co]
 
 recursive-include docs *.md conf.py Makefile make.bat *.jpg *.png *.gif
 
+prune tests/data

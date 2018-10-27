@@ -11,18 +11,15 @@ TK_UP,TK_REP,TK_WREP = 'xxup','xxrep','xxwrep'
 
 class BaseTokenizer():
     "Basic class for a tokenizer function."
-    def __init__(self, lang:str):
-        self.lang = lang
+    def __init__(self, lang:str):                      self.lang = lang
+    def tokenizer(self, t:str) -> List[str]:           return t.split(' ')
+    def add_special_cases(self, toks:Collection[str]): pass
 
-    def tokenizer(self, t:str) -> List[str]:            raise NotImplementedError
-    def add_special_cases(self, toks:Collection[str]):  raise NotImplementedError
-
-#export
 class SpacyTokenizer(BaseTokenizer):
     "Wrapper around a spacy tokenizer to make it a `BaseTokenizer`."
 
     def __init__(self, lang:str):
-        self.tok = spacy.load(lang)
+        self.tok = spacy.blank(lang)
 
     def tokenizer(self, t:str) -> List[str]:
         return [t.text for t in self.tok.tokenizer(t)]
@@ -101,7 +98,7 @@ class Tokenizer():
 
     def process_all(self, texts:Collection[str]) -> List[List[str]]:
         "Process a list of `texts`."
-        if self.n_cpus <= 1: return self.process_all_1(texts)
+        if self.n_cpus <= 1: return self._process_all_1(texts)
         with ProcessPoolExecutor(self.n_cpus) as e:
             return sum(e.map(self._process_all_1, partition_by_cores(texts, self.n_cpus)), [])
 

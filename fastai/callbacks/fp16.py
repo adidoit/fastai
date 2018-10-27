@@ -62,11 +62,11 @@ class MixedPrecision(Callback):
 
     def on_train_begin(self, **kwargs:Any)->None:
         "Ensure everything is in half precision mode."
-#         self.learn.data.train_dl.half = True
         self.learn.data.train_dl.add_tfm(to_half)
         if hasattr(self.learn.data, 'valid_dl') and self.learn.data.valid_dl is not None:
-#             self.learn.data.valid_dl.half = True
             self.learn.data.valid_dl.add_tfm(to_half)
+        if hasattr(self.learn.data, 'test_dl') and self.learn.data.test_dl is not None:
+            self.learn.data.test_dl.add_tfm(to_half)
         #Get a copy of the model params in FP32
         self.model_params, self.master_params = get_master(self.learn.layer_groups, self.flat_master)
         #Changes the optimizer so that the optimization step is done in FP32.
@@ -74,7 +74,7 @@ class MixedPrecision(Callback):
         mom,wd,beta = opt.mom,opt.wd,opt.beta
         lrs = [lr for lr in self.learn.opt._lr for _ in range(2)]
         opt_params = [{'params': mp, 'lr': lr} for mp,lr in zip(self.master_params, lrs)]
-        self.learn.opt.opt = self.learn.opt_fn(opt_params)
+        self.learn.opt.opt = self.learn.opt_func(opt_params)
         opt.mom,opt.wd,opt.beta = mom,wd,beta
 
     def on_train_end(self, **kwargs:Any)->None:
